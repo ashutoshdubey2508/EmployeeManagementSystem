@@ -6,17 +6,49 @@ from rest_framework.decorators import api_view
 import jwt, datetime
 from django.http import Http404
 from rest_framework.exceptions import AuthenticationFailed
-from .serializers import EmployeeSerializer,ManagerSerializer
-from .models import Employee_model,Manager_model
+from .serializers import EmployeeSerializer, Adminserializer
+from .models import Employee_model, Admin
+from django.contrib.auth.hashers import check_password
+from .Deco import jwt_auth_required
 
-# REGISTEREMP
 
-class RegisterManagerView(APIView):
+class RegisterEmployeeView(APIView):
     def post(self, request):
-        serializer =  ManagerSerializer(data = request.data)
+        data = request.data
+        employee_check = Employee_model.objects.filter(email=data['email']).first()
+
+        if employee_check is not None:
+            raise AuthenticationFailed('employee already present')
+
+        manager_id = data.get('manager_id')  
+       
+        employee = {
+            'name': data['name'],
+            'email': data['email'],
+            'password': data['password'],
+            'contact_number': data['contact_number'],
+            'blood_group': data['blood_group'],
+            'Father_name': data['Father_name'],
+            'physically_challenged': data['physically_challenged'],
+            'Religion': data['Religion'],
+            'Graduation': data['Graduation'],
+            'percentage': data['percentage'],
+            'passing_year': data['passing_year'],
+            'address': data['address'],
+            'department': data['department'],
+            'designation': data['designation'],
+            'location': data['location'],
+            'image': data['image'],
+            'manager_id': manager_id  
+        }
+
+        serializer = EmployeeSerializer(data=employee)
+
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
 
 # LOGINMANAGER 
 
@@ -24,13 +56,48 @@ class LoginManagerView(APIView):
     def post(self,request):
         email = request.data['email']
         password = request.data['password']
-
-        manager = Manager_model.objects.filter(email=email).first()
+        
+        manager = Employee_model.objects.filter(email=email).first()
+        # query_set = Employee_model.objects.filter(manager=manager.subemployee)
+        # print(manager.subemployee.all())
+        # print(manager.manager.name)
 
         if manager is None:
-            raise AuthenticationFailed("Manager Not found")
+            raise AuthenticationFailed("Employee Not found")
         
-        if not manager.check_password(password):
+        if not password == manager.password:
+            raise AuthenticationFailed("Incorrect password")
+        
+        payload = {
+            'id' : manager.id,
+            'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes= 60),
+            'iat' : datetime.datetime.utcnow()
+        }
+
+        token = jwt.encode(payload, 'secret', algorithm = 'HS256')
+        
+        response =Response()
+
+        response.set_cookie(key='jwt',value = token , httponly = True)
+
+        response.data={
+            'jwt' : token
+        }
+        
+        return response
+
+
+class LoginAdminView(APIView):
+    def post(self,request):
+        email = request.data['email']
+        password = request.data['password']
+        
+        manager = Admin.objects.filter(email=email).first()
+      
+        if manager is None:
+            raise AuthenticationFailed("Admin Not found")
+        
+        if not password==manager.password:
             raise AuthenticationFailed("Incorrect password")
         
         payload = {
@@ -49,33 +116,13 @@ class LoginManagerView(APIView):
         response.data={
             'jwt' : token
         }
-
+        
         return response
 
-#get managerinformation
-
-class  GetManagerInfo(APIView):
-    def get(self , request):
-        token = request.COOKIES.get('jwt')
-
-        if not token:
-            raise AuthenticationFailed('unauthenticated')
-
-        try:
-            payload = jwt.decode(token , 'secret' , algorithms = ['HS256'])
-        except jwt.ExpiredSignatureError:
-            raise AuthenticationFailed('unauthenticated')
-
-        manager = Manager_model.objects.filter(id = payload['id']).first()
 
 
-        serializer = ManagerSerializer(manager)
-
-        return Response(serializer.data)     
-
-# manager logout
-
-class ManagerLogoutView(APIView):
+#logout
+class EmployeeLogoutView(APIView):
     def post(self ,request):
 
         token = request.COOKIES.get('jwt')
@@ -88,71 +135,114 @@ class ManagerLogoutView(APIView):
         response.data = {
             'message' : 'success'
         }        
-
         return response
-    
 
-# ADDEMP
+# #get managerinformation
+
+class  GetEmployeeInfo(APIView):
+    def get(self , request , employee_id):
+
+        employee = Employee_model.objects.filter(id = employee_id).first()
+
+
+        serializer = EmployeeSerializer(employee)
+
+        return Response(serializer.data)    
+
+
+class GetonlyManagerView(APIView):
+    # @jwt_auth_required
+    def get(self, request):
+        token = request.headers["Authorization"].split("Bearer ")[1]
+        decode_token = jwt.decode(token, 'secret', algorithms=['HS256'])
+        user_id = decode_token['id']
+        manager = Employee_model.objects.filter(id=user_id).first()
+
+        if not manager:
+            return Response({'error': 'Manager not found'}, status=404)
+
+        serializer = EmployeeSerializer(manager)
+        
+        return Response({'user_id': user_id, 'manager_data': serializer.data})
+  
+
+# # manager logout
+
+class Reporting_to(APIView):
+    def get(self, request , manager_id):
+        
+        employee = Employee_model.objects.filter(id=manager_id).first()
+
+        manager = employee.manager
+        
+
+        if not manager:
+            return Response({'error': 'Employee not found'}, status=404)
+
+        serializer = EmployeeSerializer(manager)
+        return Response(serializer.data) 
+    
+class MyteamView(APIView):
+    def get(self,request , current_id):
+        employee = Employee_model.objects.filter(id = current_id).first()
+        if not employee:
+            raise AuthenticationFailed('wrong id entered')
+        return_data = employee.subemployee.all()
+        if not return_data:
+            raise AuthenticationFailed('Does not have team')
+
+        serializer = EmployeeSerializer(return_data , many = True)
+
+        return Response(serializer.data)         
+
+# # ADDEMP
 
 class EmpAddView(APIView):
     def post(self , request):
-        token = request.COOKIES.get('jwt')
-
-        if not token:
-            raise AuthenticationFailed('unauthenticated')
-
-        try:
-            payload = jwt.decode(token , 'secret' , algorithms = ['HS256'])
-        except jwt.ExpiredSignatureError:
-            raise AuthenticationFailed('unauthenticated')
+        data = request.data
         
-        employee_check = Employee_model.objects.filter(email = request.data['email']).first()
+        employee_check = Employee_model.objects.filter(email=request.data['email']).first()
 
         if employee_check is not None:
             raise AuthenticationFailed('employee already present')
 
-        manager = Manager_model.objects.filter(id = payload['id']).first()
+        manager_id = data.get('manager_id')  
 
-        employee = Employee_model.objects.create(
-            emp_name=request.data['emp_name'],
-            email=request.data['email'],
-            password=request.data['password'],
-            team_name=request.data['team_name'],
-            manager_details=manager
-        )
-        
-        # employee = Employee_model()
-        
-        # employee.objects.create(emp_name = request.data['emp_name'] ,email = request.data['email'], password = request.data['password'] , team_name = request.data['team_name'], manager_details = manager )
+        employee = {
+            'name': data['name'],
+            'email': data['email'],
+            'password': data['password'],
+            'contact_number': data['contact_number'],
+            'blood_group': data['blood_group'],
+            'Father_name': data['Father_name'],
+            'physically_challenged': data['physically_challenged'],
+            'Religion': data['Religion'],
+            'Graduation': data['Graduation'],
+            'percentage': data['percentage'],
+            'passing_year': data['passing_year'],
+            'address': data['address'],
+            'department': data['department'],
+            'designation': data['designation'],
+            'location': data['location'],
+            'image': data['image'],
+            'manager_id': manager_id  
+        }
 
-        # employee.save()
+        serializer = EmployeeSerializer(data=employee)
 
-        serializer = EmployeeSerializer(employee)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-        return Response(serializer.data)
 
 
-#deleteEmployee
+# #deleteEmployee
 
 
 class EmpDeleteView(APIView):
-    def post(self ,request):
+    def delete(self ,request , id ):
 
-        token = request.COOKIES.get('jwt')
-
-        if not token:
-            raise AuthenticationFailed('unauthenticated')
-        
-        try:
-            payload = jwt.decode(token , 'secret' , algorithms = ['HS256'])
-        except jwt.ExpiredSignatureError:
-            raise AuthenticationFailed('unauthenticated')
-        
-        employee_delete = request.data['email']
-
-        manager = Manager_model.objects.filter(id = payload['id']).first()
-
-        employee=Employee_model.objects.filter(email = employee_delete,manager_details = manager).first()
+        employee=Employee_model.objects.filter(id = id).first()
 
         if not employee:
             raise AuthenticationFailed("Employee not found")
@@ -167,47 +257,12 @@ class EmpDeleteView(APIView):
 
         return response
 
-
-#GETemployeedata
-
-
-class GetEmployeeView(APIView):
-    def get(self ,request):
-        token = request.COOKIES.get('jwt')
-
-        if not token:
-            raise AuthenticationFailed('unauthenticated')
-
-        try:
-            payload = jwt.decode(token , 'secret' , algorithms = ['HS256'])
-        except jwt.ExpiredSignatureError:
-            raise AuthenticationFailed('unauthenticated')
-        
-        employee_mail = request.data['email']
-
-        if not employee_mail:
-            raise AuthenticationFailed("employee not found")
-        
-        result = Employee_model.objects.get(email = employee_mail)
-
-        serializer = EmployeeSerializer(result)
-
-        return Response(serializer.data)
     
-#update Employeedata
+# #update Employeedata
 
 class UpdateEmployeeView(APIView):
     def put(self, request):
-        token = request.COOKIES.get('jwt')
-
-        if not token:
-            raise AuthenticationFailed('unauthenticated')
-
-        try:
-            payload = jwt.decode(token , 'secret' , algorithms = ['HS256'])
-        except jwt.ExpiredSignatureError:
-            raise AuthenticationFailed('unauthenticated')
-        
+        data=request.data
 
         employee_mail = request.data['email']
 
@@ -218,11 +273,23 @@ class UpdateEmployeeView(APIView):
             employee = Employee_model.objects.get(email=request.data['email'])
         except Employee_model.DoesNotExist:
             raise Http404('Employee not found.')
-
-        employee.emp_name = request.data['emp_name']
-        employee.email = request.data['email']
-        employee.password = request.data['password']
-        employee.team_name = request.data['team_name']
+        
+        employee.name = data['name']
+        employee.email= data['email']
+        employee.contact_number=data['contact_number']
+        employee.blood_group = data['blood_group']
+        employee.Father_name = data['Father_name']
+        employee.physically_challenged = data['physically_challenged']
+        employee.Religion = data['Religion']
+        employee.Graduation = data['Graduation']
+        employee.percentage = data['percentage']
+        employee.passing_year = data['passing_year']
+        employee.address = data['address']
+        employee.department =  data['department']
+        employee.designation = data['designation']
+        employee.location = data['location']
+        employee.image = data['image']
+        employee.manager_id = data['manager_id']
 
 
         serializer = EmployeeSerializer(instance=employee, data=request.data)
@@ -241,66 +308,10 @@ class UpdateEmployeeView(APIView):
         return response
     
 
-#GETAllemployee 
-
-class GetAnyEmployee(APIView):
-    def get(self ,request):
-        employee_mail = request.data['email']
-
-        if not employee_mail:
-            raise AuthenticationFailed("employee not found")
-        
-        result = Employee_model.objects.get(email = employee_mail)
-
-        serializer = EmployeeSerializer(result)
-
-        return Response(serializer.data)
-    
-
-#GETall_loggedinemployee
-
-class GetAllLoggedInEmployee(APIView):
+class Getall(APIView):
     def get(self, request):
-        token = request.COOKIES.get('jwt')
-
-        if not token:
-            raise AuthenticationFailed('unauthenticated')
-
-        try:
-            payload = jwt.decode(token , 'secret' , algorithms = ['HS256'])
-        except jwt.ExpiredSignatureError:
-            raise AuthenticationFailed('unauthenticated')
-        
-        manager = Manager_model.objects.filter(id = payload['id']).first()
-
-        if not manager:
-            raise AuthenticationFailed('manager not found')
-
-        employee = Employee_model.objects.filter(manager_details = manager)
-
-        serializer = EmployeeSerializer(employee , many = True)
-
+        data = Employee_model.objects.all()
+        serializer = EmployeeSerializer(data , many = True)
         return Response(serializer.data)
-
-class Displayallemp(APIView):
-    
-    def get(self, request):
-        token = request.COOKIES.get('jwt')
-
-        if not token:
-            raise AuthenticationFailed('unauthenticated')
-
-        try:
-            payload = jwt.decode(token , 'secret' , algorithms = ['HS256'])
-        except jwt.ExpiredSignatureError:
-            raise AuthenticationFailed('unauthenticated')
-        
-        empobj = Employee_model.objects.all()
-
-        serializer = EmployeeSerializer(empobj, many=True)
-
-        return Response(serializer.data)
-            
-
                
 
