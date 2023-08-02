@@ -232,7 +232,16 @@ class EmpAddView(APIView):
 
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        employee_find = Employee_model.objects.filter(email=request.data['email']).first()
+
+    # Create a serializer for the employee object
+        serializer = EmployeeSerializer(employee_find)
+
+    # Return the response with the serialized data and the employee ID
+        return Response({
+        'data': serializer.data,
+        'employee_id': employee_find.id  # Include the employee ID in the response
+        }, status=status.HTTP_201_CREATED)
 
 
 
@@ -299,13 +308,16 @@ class UpdateEmployeeView(APIView):
         else:
             raise AuthenticationFailed('Invalid data')    
 
-        response = Response()
+        employee_find = Employee_model.objects.filter(email=request.data['email']).first()
 
-        response.data = {
-            "message" : "success"
-        }
+    # Create a serializer for the employee object
+        serializer = EmployeeSerializer(employee_find)
 
-        return response
+    # Return the response with the serialized data and the employee ID
+        return Response({
+        'data': serializer.data,
+        'employee_id': employee_find.id  # Include the employee ID in the response
+        }, status=status.HTTP_201_CREATED)
     
 
 class Getall(APIView):
