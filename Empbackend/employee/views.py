@@ -9,7 +9,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from .serializers import EmployeeSerializer, Adminserializer
 from .models import Employee_model, Admin
 from django.contrib.auth.hashers import check_password
-from .Deco import jwt_auth_required
+# from .Deco import jwt_auth_required
 
 
 class RegisterEmployeeView(APIView):
@@ -81,7 +81,9 @@ class LoginManagerView(APIView):
         response.set_cookie(key='jwt',value = token , httponly = True)
 
         response.data={
-            'jwt' : token
+            'jwt' : token,
+            'email' : email,
+            'id':manager.id
         }
         
         return response
@@ -141,13 +143,13 @@ class EmployeeLogoutView(APIView):
 
 class  GetEmployeeInfo(APIView):
     def get(self , request , employee_id):
-
-        employee = Employee_model.objects.filter(id = employee_id).first()
-
-
-        serializer = EmployeeSerializer(employee)
-
-        return Response(serializer.data)    
+        try:
+            employee = Employee_model.objects.get(id=employee_id)
+            serializer = EmployeeSerializer(employee)
+            return Response(serializer.data)
+        except Employee_model.DoesNotExist:
+            return Response({'detail': 'Employee not found'}, status=status.HTTP_404_NOT_FOUND) 
+       
 
 
 class GetonlyManagerView(APIView):
@@ -175,7 +177,7 @@ class Reporting_to(APIView):
 
         manager = employee.manager
         
-
+        
         if not manager:
             return Response({'error': 'Employee not found'}, status=404)
 
