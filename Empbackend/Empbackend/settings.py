@@ -88,6 +88,8 @@ DATABASES = {
         'NAME': 'empsystem',
         'USER': 'root',
         'PASSWORD': 'Consultadd@2000',
+        'HOST': 'localhost',     
+        'PORT': '3306',
     }
 }
 
